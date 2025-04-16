@@ -11,7 +11,7 @@ from utils.tools import get_batch_mask, get_prompt_text
 from utils.ucf_detectionMAP import getDetectionMAP as dmAP
 import ucf_option
 
-def test(model, testdataloader, maxlen, prompt_text, gt, gtsegments, gtlabels, device):
+def test(model, testdataloader, maxlen, prompt_text, gt, gtsegments, gtlabels, device, descriptions):
     
     model.to(device)
     model.eval()
@@ -44,7 +44,9 @@ def test(model, testdataloader, maxlen, prompt_text, gt, gtsegments, gtlabels, d
                     lengths[j] = length
             lengths = lengths.to(int)
             padding_mask = get_batch_mask(lengths, maxlen).to(device)
-            _, logits1, logits2 = model(visual, padding_mask, prompt_text, lengths)
+            _, logits1, logits2 = model(visual, padding_mask, prompt_text, lengths, descriptions)
+            #max_indices_logits2 = torch.argmax(logits2, dim=-1)
+            #print("Class indices with maximum logits2 values:", max_indices_logits2)
             logits1 = logits1.reshape(logits1.shape[0] * logits1.shape[1], logits1.shape[2])
             logits2 = logits2.reshape(logits2.shape[0] * logits2.shape[1], logits2.shape[2])
             prob2 = (1 - logits2[0:len_cur].softmax(dim=-1)[:, 0].squeeze(-1))
@@ -67,6 +69,8 @@ def test(model, testdataloader, maxlen, prompt_text, gt, gtsegments, gtlabels, d
     ap1 = ap1.tolist()
     ap2 = ap2.tolist()
 
+    # logits1 e ROC1 e AP1 são binário (Normal ou anormal)
+    # logits2 e ROC2 e AP2 são multi-classe (Outras classes)
     ROC1 = roc_auc_score(gt, np.repeat(ap1, 16))
     AP1 = average_precision_score(gt, np.repeat(ap1, 16))
     ROC2 = roc_auc_score(gt, np.repeat(ap2, 16))
@@ -100,8 +104,10 @@ if __name__ == '__main__':
     gtsegments = np.load(args.gt_segment_path, allow_pickle=True)
     gtlabels = np.load(args.gt_label_path, allow_pickle=True)
 
+    descriptions = np.load(args.description_path, allow_pickle=True)
+
     model = CLIPVAD(args.classes_num, args.embed_dim, args.visual_length, args.visual_width, args.visual_head, args.visual_layers, args.attn_window, args.prompt_prefix, args.prompt_postfix, device)
     model_param = torch.load(args.model_path)
     model.load_state_dict(model_param)
 
-    test(model, testdataloader, args.visual_length, prompt_text, gt, gtsegments, gtlabels, device)
+    test(model, testdataloader, args.visual_length, prompt_text, gt, gtsegments, gtlabels, device, descriptions)

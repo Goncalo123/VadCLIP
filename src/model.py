@@ -199,7 +199,7 @@ class CLIPVAD(nn.Module):
 
         return text_features
 
-    def forward(self, visual, padding_mask, text, lengths):
+    def forward(self, visual, padding_mask, text, lengths, descriptions):
         visual_features = self.encode_video(visual, padding_mask, lengths)
         logits1 = self.classifier(visual_features + self.mlp2(visual_features))
 
@@ -219,6 +219,25 @@ class CLIPVAD(nn.Module):
         text_features_norm = text_features / text_features.norm(dim=-1, keepdim=True)
         text_features_norm = text_features_norm.permute(0, 2, 1)
         logits2 = visual_features_norm @ text_features_norm.type(visual_features_norm.dtype) / 0.07
+
+        # Adapting PLOVAD (https://ieeexplore.ieee.org/abstract/document/10836858)
+
+        text_features_desc = torch.tensor(descriptions).to(visual_features.device)
+
+        logits_attn_desc = logits1.permute(0, 2, 1)
+        visual_attn_desc = logits_attn_desc @ visual_features
+        visual_attn_desc = visual_attn_desc / visual_attn_desc.norm(dim=-1, keepdim=True)
+        visual_attn_desc = visual_attn_desc.expand(visual_attn_desc.shape[0], text_features_desc.shape[0], visual_attn_desc.shape[2])
+        fused_text_features_desc = text_features_desc.unsqueeze(0)
+        fused_text_features_desc = fused_text_features_desc.expand(visual_attn_desc.shape[0], fused_text_features_desc.shape[1], fused_text_features_desc.shape[2])
+        fused_text_features_desc = fused_text_features_desc + visual_attn_desc
+        fused_text_features_desc = fused_text_features_desc + self.mlp1(fused_text_features_desc)
+
+        text_features_desc_norm = fused_text_features_desc / fused_text_features_desc.norm(dim=-1, keepdim=True)
+        text_features_desc_norm = text_features_desc_norm.permute(0, 2, 1)
+        logits2_desc = visual_features_norm @ text_features_desc_norm.type(visual_features_norm.dtype) / 0.07
+
+        logits2 = torch.where(logits2 > logits2_desc, logits2, logits2_desc)
 
         return text_features_ori, logits1, logits2
     

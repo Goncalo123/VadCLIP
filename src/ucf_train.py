@@ -38,7 +38,7 @@ def CLAS2(logits, labels, lengths, device):
     clsloss = F.binary_cross_entropy(instance_logits, labels)
     return clsloss
 
-def train(model, normal_loader, anomaly_loader, testloader, args, label_map, device):
+def train(model, normal_loader, anomaly_loader, testloader, args, label_map, device, descriptions):
     model.to(device)
     gt = np.load(args.gt_path)
     gtsegments = np.load(args.gt_segment_path, allow_pickle=True)
@@ -75,7 +75,7 @@ def train(model, normal_loader, anomaly_loader, testloader, args, label_map, dev
             feat_lengths = torch.cat([normal_lengths, anomaly_lengths], dim=0).to(device)
             text_labels = get_batch_label(text_labels, prompt_text, label_map).to(device)
 
-            text_features, logits1, logits2 = model(visual_features, None, prompt_text, feat_lengths) 
+            text_features, logits1, logits2 = model(visual_features, None, prompt_text, feat_lengths, descriptions) 
             #loss1
             loss1 = CLAS2(logits1, text_labels, feat_lengths, device) 
             loss_total1 += loss1.item()
@@ -98,7 +98,7 @@ def train(model, normal_loader, anomaly_loader, testloader, args, label_map, dev
             step += i * normal_loader.batch_size * 2
             if step % 1280 == 0 and step != 0:
                 print('epoch: ', e+1, '| step: ', step, '| loss1: ', loss_total1 / (i+1), '| loss2: ', loss_total2 / (i+1), '| loss3: ', loss3.item())
-                AUC, AP = test(model, testloader, args.visual_length, prompt_text, gt, gtsegments, gtlabels, device)
+                AUC, AP = test(model, testloader, args.visual_length, prompt_text, gt, gtsegments, gtlabels, device, descriptions)
                 AP = AUC
 
                 if AP > ap_best:
@@ -141,6 +141,8 @@ if __name__ == '__main__':
     test_dataset = UCFDataset(args.visual_length, args.test_list, True, label_map)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
+    descriptions = np.load(args.description_path, allow_pickle=True)
+
     model = CLIPVAD(args.classes_num, args.embed_dim, args.visual_length, args.visual_width, args.visual_head, args.visual_layers, args.attn_window, args.prompt_prefix, args.prompt_postfix, device)
 
-    train(model, normal_loader, anomaly_loader, test_loader, args, label_map, device)
+    train(model, normal_loader, anomaly_loader, test_loader, args, label_map, device, descriptions)
